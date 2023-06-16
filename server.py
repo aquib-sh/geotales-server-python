@@ -1,5 +1,5 @@
 import time
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, url_for
 from flask_cors import CORS
 from pymongo import MongoClient
 from datetime import datetime
@@ -54,39 +54,37 @@ def convert_objectid_to_string(image):
     image['uploadTimestamp'] = datetime.utcfromtimestamp(image['uploadTimestamp']).isoformat()
     return image
 
-
-@app.route('/images', methods=['GET'])
-def get_all_images():
-    images = list(image_collection.find())
+def __bake_response(images:list):
     images = [convert_objectid_to_string(image) for image in images]
     response = []
     for image in images:
         image_info = image.copy()
-        image_info['file'] = send_from_directory(UPLOAD_FOLDER, image['fileName'])
+        image_info['fileURL'] = url_for('uploaded_file', filename=image['fileName'], _external=True)
         response.append(image_info)
-    return jsonify(response), 200
+    return response
+
+
+@app.route('/images', methods=['GET'])
+def get_all_images():
+    images = list(image_collection.find())
+    return jsonify(__bake_response(images)), 200
+
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename), 200
 
 
 @app.route('/images/location/<latitude>/<longitude>', methods=['GET'])
 def get_images_by_location(latitude, longitude):
     images = list(image_collection.find({"longitude": longitude, "latitude":latitude}))
-    response = []
-    for image in images:
-        image_info = image.copy()
-        image_info['file'] = send_from_directory(UPLOAD_FOLDER, image['fileName'])
-        response.append(image_info)
-    return jsonify(response), 200
+    return jsonify(__bake_response(images)), 200
 
 
 @app.route('/images/user/<userId>', methods=['GET'])
 def get_images_by_user(userId):
     images = list(image_collection.find({"userId": userId}))
-    response = []
-    for image in images:
-        image_info = image.copy()
-        image_info['file'] = send_from_directory(UPLOAD_FOLDER, image['fileName'])
-        response.append(image_info)
-    return jsonify(response), 200
+    return jsonify(__bake_response(images)), 200
 
 
 @app.route('/images_info', methods=['GET'])
@@ -98,18 +96,13 @@ def get_images_info():
 @app.route('/images/id/<image_id>', methods=['GET'])
 def get_image_by_id(image_id):
     images = list(image_collection.find({"id": image_id}))
-    response = []
-    for image in images:
-        image_info = image.copy()
-        image_info['file'] = send_from_directory(UPLOAD_FOLDER, image['fileName'])
-        response.append(image_info)
-    return jsonify(response), 200
+    return jsonify(__bake_response(images)), 200
+
 
 @app.route('/coordinates', methods=['GET'])
 def get_coordinates():
     coordinates = list(image_collection.find({}, {"_id": 0, "latitude": 1, "longitude": 1}))
     return jsonify(coordinates), 200
-
 
 
 if __name__ == "__main__":
