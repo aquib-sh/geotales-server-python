@@ -1,16 +1,19 @@
 import time
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory, url_for
 from flask_cors import CORS
 from pymongo import MongoClient
-from pymongo.errors import DuplicateKeyError, OperationFailure
 from datetime import datetime
 import os
-import base64
-
 
 app = Flask(__name__)
 CORS(app)
 
+UPLOAD_FOLDER = 'uploads'
+app.config['CORS_HEADER'] = 'Content-Type'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+if (UPLOAD_FOLDER not in os.listdir()):
+    os.mkdir(UPLOAD_FOLDER)
 
 mongo_url = os.environ["MONGODB_URI"]
 client = MongoClient(mongo_url)
@@ -22,8 +25,9 @@ image_collection = db["images"]
 def upload_image():
     file = request.files['image']
     data = request.form
-    image_content = file.read()
-    base64_image = base64.b64encode(image_content).decode("utf-8")
+
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+    file.save(file_path)
 
     new_image = {
         "id": data["id"],
@@ -34,12 +38,12 @@ def upload_image():
         "latitude": float(data["latitude"]),
         "longitude": float(data["longitude"]),
         "uploadTimestamp": time.time(),       
-        "imageContent": base64_image
+        "imagePath": file_path
     }
 
     try:
         image_collection.insert_one(new_image)
-        return jsonify({"message": "Image uploaded successfully"})
+        return jsonify({"message": "Image uploaded successfully"}, 201)
     except Exception as err:
         print(err)
         return jsonify({"error": "Failed to save image"}), 500
@@ -50,44 +54,55 @@ def convert_objectid_to_string(image):
     image['uploadTimestamp'] = datetime.utcfromtimestamp(image['uploadTimestamp']).isoformat()
     return image
 
+def __bake_response(images:list):
+    images = [convert_objectid_to_string(image) for image in images]
+    response = []
+    for image in images:
+        image_info = image.copy()
+        image_info['fileURL'] = url_for('uploaded_file', filename=image['fileName'], _external=True)
+        response.append(image_info)
+    return response
+
 
 @app.route('/images', methods=['GET'])
 def get_all_images():
     images = list(image_collection.find())
-    images = [convert_objectid_to_string(image) for image in images]
-    return jsonify(images)
+    return jsonify(__bake_response(images)), 200
+
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename), 200
 
 
 @app.route('/images/location/<latitude>/<longitude>', methods=['GET'])
 def get_images_by_location(latitude, longitude):
-    images = list(image_collection.find({"latitude": float(latitude), "longitude": float(longitude)}))
-    return jsonify(images)
+    images = list(image_collection.find({"longitude": longitude, "latitude":latitude}))
+    return jsonify(__bake_response(images)), 200
+
 
 @app.route('/images/user/<userId>', methods=['GET'])
 def get_images_by_user(userId):
     images = list(image_collection.find({"userId": userId}))
-    return jsonify(images)
+    return jsonify(__bake_response(images)), 200
+
 
 @app.route('/images_info', methods=['GET'])
 def get_images_info():
-    images = list(image_collection.find({}, {"imageContent": 0}))
-    return jsonify(images)
+    images = list(image_collection.find())
+    return jsonify(images), 200
 
 
 @app.route('/images/id/<image_id>', methods=['GET'])
 def get_image_by_id(image_id):
-    image = image_collection.find_one({"id": image_id})
-    if image:
-        return jsonify(image)
-    else:
-        return jsonify({"error": "Image not found"}), 404
+    images = list(image_collection.find({"id": image_id}))
+    return jsonify(__bake_response(images)), 200
 
 
 @app.route('/coordinates', methods=['GET'])
 def get_coordinates():
     coordinates = list(image_collection.find({}, {"_id": 0, "latitude": 1, "longitude": 1}))
     return jsonify(coordinates), 200
-
 
 
 if __name__ == "__main__":
