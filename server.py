@@ -38,9 +38,9 @@ def upload_image():
         "latitude": float(data["latitude"]),
         "longitude": float(data["longitude"]),
         "uploadTimestamp": time.time(),       
-        "imagePath": file_path
+        "imagePath": file_path,
+        "isPrivate": data['isPrivate'] == 'true'
     }
-
     try:
         image_collection.insert_one(new_image)
         return jsonify({"message": "Image uploaded successfully"}, 201)
